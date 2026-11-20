@@ -26,6 +26,9 @@ padding:10px 14px;position:sticky;scrollbar-color:var(--line) transparent;scroll
 .controls legend{float:inline-start;font-weight:600;margin-inline-end:10px;padding:0}
 .controls fieldset label+label{margin-inline-start:14px}
 .controls label{cursor:pointer}
+.single-plan .run__plan{display:none}
+.plan-status{font-size:.85rem;margin-inline-start:10px}
+.plan-status:empty{display:none}
 input{accent-color:var(--accent)}
 .paces{background:var(--surface);border:1px solid var(--line);border-radius:10px;margin-block:16px;padding:12px 16px}
 .paces summary{cursor:pointer;font-weight:600}
@@ -89,7 +92,7 @@ table.stats{border-collapse:collapse;inline-size:100%}
 @media (max-width:900px){.week__days{grid-template-columns:1fr}.day{border-block-start:1px solid var(--line);padding-block-start:6px}
 .day:first-child{border:0}.run{flex:none}}
 @media print{.controls{position:static}.week{break-inside:avoid}.paces{display:none}}
-.view-pfitz .plan-hybrid{display:none}.view-pfitz .plan-nsm{display:none}.view-hybrid .plan-pfitz{display:none}.view-hybrid .plan-nsm{display:none}.view-nsm .plan-pfitz{display:none}.view-nsm .plan-hybrid{display:none}.view-pfitz .run__plan,.view-hybrid .run__plan,.view-nsm .run__plan{display:none}</style></head>
+</style></head>
 <body class="view-all">
 <main class="page">
 <h1>Pfitz 18/55 vs NSM hybrid vs NSM-led</h1>
@@ -107,20 +110,20 @@ Paces are saved in this browser only.</p>
 </details>
 
 <div class="controls">
-<fieldset><legend>Show</legend>
-<label><input type="radio" name="view" value="all" checked> All</label>
-<label><input type="radio" name="view" value="pfitz"> Pfitz only</label>
-<label><input type="radio" name="view" value="hybrid"> Hybrid only</label>
-<label><input type="radio" name="view" value="nsm"> NSM-led only</label></fieldset>
+<fieldset><legend>Plans</legend>
+<label><input type="checkbox" name="plan" value="pfitz" checked> Pfitz</label>
+<label><input type="checkbox" name="plan" value="hybrid" checked> Hybrid</label>
+<label><input type="checkbox" name="plan" value="nsm" checked> NSM-led</label>
+<span class="plan-status" id="plan-status" role="status"></span></fieldset>
 <label><input type="checkbox" id="details"> Show session details</label>
 <label><input type="checkbox" id="optional" checked> Show options to consider</label>
 </div>
 
 <div class="grid2">
-<div class="card"><h3>Summary</h3><div class="stats-wrap" tabindex="0" role="region" aria-label="Summary table"><table class="stats"><thead><tr><th></th><th scope="col">Pfitz</th><th scope="col">Hybrid</th><th scope="col">NSM-led</th></tr></thead>
+<div class="card"><h3>Summary</h3><div class="stats-wrap" tabindex="0" role="region" aria-label="Summary table"><table class="stats"><thead><tr id="stats-head"><th></th><th scope="col">Pfitz</th><th scope="col">Hybrid</th><th scope="col">NSM-led</th></tr></thead>
 <tbody id="stats"></tbody></table></div></div>
 <div class="card"><h3>Weekly km</h3><div id="chart"></div>
-<ul class="key"><li><span class="swatch" style="background:var(--pfitz-bar)"></span>Pfitz</li>
+<ul class="key" id="chart-key"><li><span class="swatch" style="background:var(--pfitz-bar)"></span>Pfitz</li>
 <li><span class="swatch" style="background:var(--hybrid-bar)"></span>Hybrid</li>
 <li><span class="swatch" style="background:var(--nsm-bar)"></span>NSM-led</li></ul></div>
 </div>
@@ -172,6 +175,14 @@ const DATA = JSON.parse(document.getElementById('plan-data').textContent);
 const STORE = DATA.store;
 const PLANS = DATA.plans;
 const body = document.body;
+const SHOWN_STORE = STORE + 'Shown';
+let VIS = PLANS;
+const planBoxes = [...document.querySelectorAll('input[name=plan]')];
+try {
+  const saved = JSON.parse(localStorage.getItem(SHOWN_STORE) || 'null');
+  if (Array.isArray(saved) && saved.some(k => PLANS.some(p => p.key === k)))
+    for (const b of planBoxes) b.checked = saved.includes(b.value);
+} catch (e) {}
 const P = {};
 for (const p of DATA.paces) P[p.key] = p.sec;
 try { Object.assign(P, JSON.parse(localStorage.getItem(STORE) || '{}')); } catch (e) {}
@@ -252,6 +263,7 @@ function statsHtml(sums) {
     ['Km at marathon pace (before race week)', col(s => fmtKm(s.mpKm))],
   ];
   for (const t of ['subt', 'lt', 'vo2', 'mp', 'mlr', 'long']) rows.push([`${DATA.types[t]} sessions`, col(s => s.counts[t])]);
+  document.getElementById('stats-head').innerHTML = '<th></th>' + VIS.map(p => `<th scope="col">${esc(p.label)}</th>`).join('');
   return rows.map(([a, v]) => `<tr><th scope="row">${a}</th>${v.map(x => `<td>${x}</td>`).join('')}</tr>`).join('');
 }
 
@@ -259,29 +271,31 @@ function chartHtml(sums) {
   const W = 720, H = 180, pad = 28, n = DATA.weeks.length;
   let top = Math.max(...sums.flatMap(s => s.weeks.slice(0, -1).map(w => w.km)));
   top = (Math.floor(top / 20) + 1) * 20;
-  const slot = (W - pad) / n, bw = slot * 0.76 / PLANS.length;
+  const slot = (W - pad) / n, bw = slot * 0.76 / VIS.length;
   let out = `<svg viewBox="0 0 ${W} ${H + 24}" role="img" aria-labelledby="chart-title chart-desc" class="chart">` +
-    `<title id="chart-title">Weekly km</title><desc id="chart-desc">Weekly kilometres for ${PLANS.map(p => p.label).join(', ')}, from 17 weeks to goal to race week.</desc>`;
+    `<title id="chart-title">Weekly km</title><desc id="chart-desc">Weekly kilometres for ${VIS.map(p => p.label).join(', ')}, from 17 weeks to goal to race week.</desc>`;
   for (let g = 0; g <= top; g += 20) {
     const y = H - g / top * (H - 10);
     out += `<line x1="${pad}" x2="${W}" y1="${y}" y2="${y}" class="chart__grid"/><text x="${pad - 6}" y="${y + 4}" class="chart__axis" text-anchor="end">${g}</text>`;
   }
   DATA.weeks.forEach((w, i) => {
     const x0 = pad + i * slot + slot * 0.12;
-    PLANS.forEach((p, j) => {
+    VIS.forEach((p, j) => {
       const km = sums[j].weeks[i].km, h = km / top * (H - 10);
       out += `<rect x="${x0 + j * bw}" y="${H - h}" width="${bw - 1}" height="${h}" class="chart__${p.key}"><title>${p.label}, ${w.label}: ${fmtKm(km)} km</title></rect>`;
     });
-    out += `<text x="${x0 + bw * PLANS.length / 2}" y="${H + 16}" class="chart__axis" text-anchor="middle">${i < n - 1 ? n - 1 - i : 'R'}</text>`;
+    out += `<text x="${x0 + bw * VIS.length / 2}" y="${H + 16}" class="chart__axis" text-anchor="middle">${i < n - 1 ? n - 1 - i : 'R'}</text>`;
   });
+  document.getElementById('chart-key').innerHTML = VIS.map(p =>
+    `<li><span class="swatch" style="background:var(--${p.key}-bar)"></span>${esc(p.label)}</li>`).join('');
   return out + '</svg>';
 }
 
 function weeksHtml(sums) {
   return DATA.weeks.map((w, i) => {
     const days = w.days.map(d => `<div class="day"><div class="day__date"><span class="day__dow">${d.dow}</span> ${d.date}</div>` +
-      PLANS.map(p => runHtml(p.key, p.label, d[p.key], d, w)).join('') + '</div>').join('');
-    const km = PLANS.map((p, j) => { const a = sums[j].weeks[i];
+      VIS.map(p => runHtml(p.key, p.label, d[p.key], d, w)).join('') + '</div>').join('');
+    const km = VIS.map((p, j) => { const a = sums[j].weeks[i];
       return `<span class="plan-${p.key}">${esc(p.label)} ${fmtKm(a.km)} km · ~${hm(a.sec)} · ${a.days} days</span>`; }).join('');
     return `<section class="week" aria-labelledby="w${i}"><header class="week__head"><h3 id="w${i}">${esc(w.label)} · ${esc(w.block)}</h3>` +
       `<p class="week__km">${km}</p></header><div class="week__days">${days}</div></section>`;
@@ -289,7 +303,9 @@ function weeksHtml(sums) {
 }
 
 function render() {
-  const sums = PLANS.map(p => summarise(p.key));
+  if (planBoxes.length) VIS = PLANS.filter(p => planBoxes.some(b => b.checked && b.value === p.key));
+  body.classList.toggle('single-plan', VIS.length === 1);
+  const sums = VIS.map(p => summarise(p.key));
   document.getElementById('stats').innerHTML = statsHtml(sums);
   document.getElementById('chart').innerHTML = chartHtml(sums);
   document.getElementById('weeks').innerHTML = weeksHtml(sums);
@@ -317,6 +333,13 @@ document.getElementById('pace-reset').addEventListener('click', () => {
 });
 for (const el of document.querySelectorAll('input[name=view]')) el.addEventListener('change', () => {
   body.classList.remove('view-all', ...PLANS.map(p => 'view-' + p.key)); body.classList.add('view-' + el.value);
+});
+for (const b of planBoxes) b.addEventListener('change', () => {
+  const status = document.getElementById('plan-status');
+  if (!planBoxes.some(x => x.checked)) { b.checked = true; status.textContent = 'At least one plan stays shown.'; return; }
+  status.textContent = '';
+  try { localStorage.setItem(SHOWN_STORE, JSON.stringify(planBoxes.filter(x => x.checked).map(x => x.value))); } catch (e) {}
+  render();
 });
 document.getElementById('details').addEventListener('change', e => body.classList.toggle('show-details', e.target.checked));
 document.getElementById('optional').addEventListener('change', e => body.classList.toggle('hide-optional', !e.target.checked));
